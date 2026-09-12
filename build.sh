@@ -8,6 +8,9 @@ WORK="${WORK:-${ROOT}/work}"
 DIST="${ROOT}/dist/${KVER}"
 ASOC_MBOX="${WORK}/asoc-v7.mbx"
 ASOC_MSGID="20260902123007.769820-1-mauriziocasciano7@gmail.com"
+WITH_DRV260X_PM_FIX="${WITH_DRV260X_PM_FIX:-0}"
+DRV260X_PM_MBOX="${WORK}/drv260x-pm-v7.mbx"
+DRV260X_PM_MSGID="20260831150323.2922792-1-mauriziocasciano7@gmail.com"
 
 need() {
     command -v "$1" >/dev/null 2>&1 || {
@@ -68,19 +71,48 @@ if [[ ! -d "${TREE}/.git" ]]; then
     echo "==> Sparse-cloning Linux ${KERNEL_TAG} baseline"
     git clone --depth 1 --filter=blob:none --sparse --branch "$KERNEL_TAG" \
         https://github.com/gregkh/linux.git "$TREE"
-    git -C "$TREE" sparse-checkout set \
-        sound/soc/intel/common \
-        sound/soc/intel/boards \
-        sound/soc/intel/atom \
-        sound/soc/codecs \
-        drivers/platform/x86
 else
     echo "==> Reusing ${TREE}"
 fi
 
+# Keep the sparse checkout complete even when reusing a tree created by an older bundle.
+git -C "$TREE" sparse-checkout set \
+    sound/soc/intel/common \
+    sound/soc/intel/boards \
+    sound/soc/intel/atom \
+    sound/soc/codecs \
+    drivers/platform/x86 \
+    drivers/input/misc
+
 # Always regenerate from the selected pristine kernel tag so repeated builds are deterministic.
+if [[ -d "$TREE/.git/rebase-apply" ]]; then
+    git -C "$TREE" am --abort || true
+fi
 git -C "$TREE" reset --hard "$KERNEL_TAG"
 git -C "$TREE" clean -fdx
+
+case "$WITH_DRV260X_PM_FIX" in
+    0|1) ;;
+    *) echo "error: WITH_DRV260X_PM_FIX must be 0 or 1" >&2; exit 1 ;;
+esac
+
+if [[ "$WITH_DRV260X_PM_FIX" == 1 ]]; then
+    echo "==> Retrieving optional drv260x suspend/resume v7 patch with b4"
+    (
+        cd "$TREE"
+        b4 am -o - "$DRV260X_PM_MSGID" > "$DRV260X_PM_MBOX"
+    )
+    if ! git -C "$TREE" am "$DRV260X_PM_MBOX"; then
+        git -C "$TREE" am --abort || true
+        cat >&2 <<EOF
+error: the optional drv260x PM v7 patch did not apply to ${KERNEL_TAG}.
+Retry without it (default):
+  WITH_DRV260X_PM_FIX=0 ./build.sh
+The Yoga Book board haptics support itself does not require this optional patch.
+EOF
+        exit 1
+    fi
+fi
 
 echo "==> Retrieving ASoC v7 patch 1/2 with b4"
 (
@@ -94,7 +126,7 @@ python3 "$ROOT/prepare.py" extract-driver \
     --output "$TREE/sound/soc/intel/boards/cht_rt5677.c"
 python3 "$ROOT/prepare.py" patch-tree --tree "$TREE"
 
-# Restrict external Kbuild to the three modules we actually need.
+# Restrict external Kbuild to the Yoga Book modules we actually need.
 # The stable common/x86 Makefiles already define the composite object lists;
 # adding obj-m directly while forcing their CONFIG selectors to n prevents
 # unrelated configured modules from being built.
@@ -104,6 +136,9 @@ obj-m += snd-soc-sst-cht-rt5677.o
 EOF
 printf '\nobj-m += snd-soc-acpi-intel-match.o\n' >> "$TREE/sound/soc/intel/common/Makefile"
 printf '\nobj-m += x86-android-tablets.o\n' >> "$TREE/drivers/platform/x86/x86-android-tablets/Makefile"
+if [[ "$WITH_DRV260X_PM_FIX" == 1 ]]; then
+    printf '\nobj-m += drv260x.o\n' >> "$TREE/drivers/input/misc/Makefile"
+fi
 
 build_dir() {
     local dir="$1"
@@ -119,12 +154,19 @@ build_dir "$TREE/sound/soc/intel/common" \
 build_dir "$TREE/sound/soc/intel/boards"
 build_dir "$TREE/drivers/platform/x86/x86-android-tablets" \
     CONFIG_X86_ANDROID_TABLETS=n
+if [[ "$WITH_DRV260X_PM_FIX" == 1 ]]; then
+    build_dir "$TREE/drivers/input/misc" \
+        CONFIG_INPUT_DRV260X_HAPTICS=n
+fi
 
 rm -rf "$DIST"
 mkdir -p "$DIST"
 cp -v "$TREE/sound/soc/intel/common/snd-soc-acpi-intel-match.ko" "$DIST/"
 cp -v "$TREE/sound/soc/intel/boards/snd-soc-sst-cht-rt5677.ko" "$DIST/"
 cp -v "$TREE/drivers/platform/x86/x86-android-tablets/x86-android-tablets.ko" "$DIST/"
+if [[ "$WITH_DRV260X_PM_FIX" == 1 ]]; then
+    cp -v "$TREE/drivers/input/misc/drv260x.ko" "$DIST/"
+fi
 
 printf '\n==> Module metadata\n'
 for ko in "$DIST"/*.ko; do
@@ -153,4 +195,6 @@ Next, leave Toolbx and install on the host:
   ./install-mutable.sh
 Then reboot and run:
   ./verify.sh
+
+Optional suspend/resume drv260x fix included: ${WITH_DRV260X_PM_FIX}
 EOF

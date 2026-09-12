@@ -67,7 +67,7 @@ class CherryTrailMatchTests(unittest.TestCase):
         self.assertEqual(patch_cherrytrail_match(source), source)
 
 
-class LenovoAudioPatchTests(unittest.TestCase):
+class LenovoBoardPatchTests(unittest.TestCase):
     def setUp(self):
         self.source = textwrap.dedent(r'''\
             static const struct software_node foo = { };
@@ -93,20 +93,28 @@ class LenovoAudioPatchTests(unittest.TestCase):
             static const struct property_entry later[] = { };
         ''')
 
-    def test_adds_ts3a_and_rt5677_resources(self):
+    def test_adds_haptics_ts3a_and_rt5677_resources(self):
         out = patch_lenovo_audio(self.source)
         self.assertIn('.type = "ts3a227e"', out)
         self.assertIn('.addr = 0x3b', out)
         self.assertIn('.chip = "INT33FF:00"', out)
         self.assertIn('.index = 77', out)
         self.assertIn('PROPERTY_ENTRY_U32("ti,micbias", 7)', out)
+        self.assertIn('PROPERTY_ENTRY_U32("mode", 0)', out)
+        self.assertIn('PROPERTY_ENTRY_U32("library-sel", 0)', out)
+        self.assertIn('&cherryview_gpiochip_nodes[0], 79', out)
+        self.assertIn('&cherryview_gpiochip_nodes[1], 47', out)
+        self.assertIn('YB1_X91_DRV2604_0_DEVICE "i2c-DRV2604:00"', out)
+        self.assertIn('YB1_X91_DRV2604_1_DEVICE "i2c-DRV2604:01"', out)
+        self.assertIn('device_add_software_node(haptics_dev', out)
+        self.assertIn('device_reprobe(haptics_dev)', out)
         self.assertIn('PROPERTY_ENTRY_GPIO("speaker-enable2-gpios"', out)
         self.assertIn('PROPERTY_ENTRY_GPIO("headphone-enable-gpios"', out)
         self.assertIn('device_add_software_node(codec_dev', out)
         self.assertIn('device_reprobe(codec_dev)', out)
-        self.assertIn('.swnode_group = lenovo_yb1_x91_audio_swnodes', out)
-        self.assertIn('.init = lenovo_yb1_x91_audio_init', out)
-        self.assertIn('.exit = lenovo_yb1_x91_audio_exit', out)
+        self.assertIn('.swnode_group = lenovo_yb1_x91_swnodes', out)
+        self.assertIn('.init = lenovo_yb1_x91_init', out)
+        self.assertIn('.exit = lenovo_yb1_x91_exit', out)
         self.assertIn('.gpiochip_type = X86_GPIOCHIP_CHERRYVIEW', out)
 
     def test_does_not_depend_on_exact_x91_comment_or_spacing(self):
@@ -119,7 +127,7 @@ class LenovoAudioPatchTests(unittest.TestCase):
         )
         out = patch_lenovo_audio(source)
         self.assertIn('.type = "ts3a227e"', out)
-        self.assertIn('.init = lenovo_yb1_x91_audio_init', out)
+        self.assertIn('.init = lenovo_yb1_x91_init', out)
 
     def test_keeps_fuel_gauge(self):
         out = patch_lenovo_audio(self.source)

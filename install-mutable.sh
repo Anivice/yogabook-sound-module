@@ -22,7 +22,11 @@ EOF
 fi
 
 sudo install -d -m 0755 "$DEST"
-for ko in x86-android-tablets.ko snd-soc-acpi-intel-match.ko snd-soc-sst-cht-rt5677.ko; do
+modules=(x86-android-tablets.ko snd-soc-acpi-intel-match.ko snd-soc-sst-cht-rt5677.ko)
+if [[ -f "$DIST/drv260x.ko" ]]; then
+    modules+=(drv260x.ko)
+fi
+for ko in "${modules[@]}"; do
     sudo install -m 0644 "$DIST/$ko" "$DEST/$ko"
 done
 sudo depmod -a "$KVER"
@@ -33,6 +37,6 @@ options snd_intel_dspcfg dsp_driver=2
 EOF
 
 printf '\nInstalled. Verify module resolution before reboot:\n'
-for name in x86_android_tablets snd_soc_acpi_intel_match snd_soc_sst_cht_rt5677; do
+for name in x86_android_tablets snd_soc_acpi_intel_match snd_soc_sst_cht_rt5677 drv260x; do
     modinfo -n "$name" || true
 done

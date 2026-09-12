@@ -87,8 +87,32 @@ def patch_cherrytrail_match(source: str) -> str:
     return source[: anchor.start()] + entry + source[anchor.start() :]
 
 
-_AUDIO_DECLS = r'''
-/* Yoga Book X91F/L audio resources missing from the firmware description. */
+_BOARD_DECLS = r'''
+/* Yoga Book X91F/L resources missing from the firmware description. */
+static const struct property_entry lenovo_yb1_x91_drv2604_0_props[] = {
+	PROPERTY_ENTRY_U32("mode", 0), /* DRV260X_LRA_MODE */
+	PROPERTY_ENTRY_U32("library-sel", 0), /* DRV260X_LIB_EMPTY */
+	PROPERTY_ENTRY_GPIO("enable-gpios", &cherryview_gpiochip_nodes[0], 79,
+			    GPIO_ACTIVE_HIGH),
+	{ }
+};
+
+static const struct property_entry lenovo_yb1_x91_drv2604_1_props[] = {
+	PROPERTY_ENTRY_U32("mode", 0), /* DRV260X_LRA_MODE */
+	PROPERTY_ENTRY_U32("library-sel", 0), /* DRV260X_LIB_EMPTY */
+	PROPERTY_ENTRY_GPIO("enable-gpios", &cherryview_gpiochip_nodes[1], 47,
+			    GPIO_ACTIVE_HIGH),
+	{ }
+};
+
+static const struct software_node lenovo_yb1_x91_drv2604_0_node = {
+	.properties = lenovo_yb1_x91_drv2604_0_props,
+};
+
+static const struct software_node lenovo_yb1_x91_drv2604_1_node = {
+	.properties = lenovo_yb1_x91_drv2604_1_props,
+};
+
 static const struct software_node lenovo_yb1_x91_rt5677_node;
 
 static const struct property_entry lenovo_yb1_x91_rt5677_props[] = {
@@ -105,6 +129,18 @@ static const struct software_node lenovo_yb1_x91_rt5677_node = {
 	.properties = lenovo_yb1_x91_rt5677_props,
 };
 
+static const struct software_node *lenovo_yb1_x91_swnodes[] = {
+	&lenovo_yb1_x91_drv2604_0_node,
+	&lenovo_yb1_x91_drv2604_1_node,
+	&lenovo_yb1_x91_rt5677_node,
+	NULL
+};
+
+static const struct software_node * const lenovo_yb1_x91_drv2604_nodes[] = {
+	&lenovo_yb1_x91_drv2604_0_node,
+	&lenovo_yb1_x91_drv2604_1_node,
+};
+
 static const struct property_entry lenovo_yb1_x91_ts3a227e_props[] = {
 	/* Value taken from the Lenovo Android kernel code drop. */
 	PROPERTY_ENTRY_U32("ti,micbias", 7),
@@ -113,11 +149,6 @@ static const struct property_entry lenovo_yb1_x91_ts3a227e_props[] = {
 
 static const struct software_node lenovo_yb1_x91_ts3a227e_node = {
 	.properties = lenovo_yb1_x91_ts3a227e_props,
-};
-
-static const struct software_node *lenovo_yb1_x91_audio_swnodes[] = {
-	&lenovo_yb1_x91_rt5677_node,
-	NULL
 };
 
 '''
@@ -143,29 +174,33 @@ _TS3A_CLIENT = r'''
 	},
 '''
 
-_X91_AUDIO_HELPERS = r'''
+_X91_BOARD_HELPERS = r'''
 #define YB1_X91_RT5677_DEVICE "i2c-10EC5677:00"
-static struct device *lenovo_yb1_x91_rt5677_dev;
+#define YB1_X91_DRV2604_0_DEVICE "i2c-DRV2604:00"
+#define YB1_X91_DRV2604_1_DEVICE "i2c-DRV2604:01"
 
-static int __init lenovo_yb1_x91_audio_init(struct device *dev)
+static struct device *lenovo_yb1_x91_rt5677_dev;
+static struct device *lenovo_yb1_x91_drv2604_devs[2];
+
+static void lenovo_yb1_x91_add_audio_props(struct device *dev)
 {
 	struct device *codec_dev;
 	int ret;
 
 	codec_dev = bus_find_device_by_name(&i2c_bus_type, NULL,
-					    YB1_X91_RT5677_DEVICE);
+				    YB1_X91_RT5677_DEVICE);
 	if (!codec_dev) {
 		dev_warn(dev, "cannot find %s, audio will be unavailable\n",
 			 YB1_X91_RT5677_DEVICE);
-		return 0;
+		return;
 	}
 
 	ret = device_add_software_node(codec_dev, &lenovo_yb1_x91_rt5677_node);
 	if (ret) {
+		put_device(codec_dev);
 		dev_warn(dev, "failed to add audio properties to %s: %d\n",
 			 YB1_X91_RT5677_DEVICE, ret);
-		put_device(codec_dev);
-		return 0;
+		return;
 	}
 
 	/* Ensure the codec GPIO provider is initialized with the new fwnode. */
@@ -175,10 +210,9 @@ static int __init lenovo_yb1_x91_audio_init(struct device *dev)
 			 YB1_X91_RT5677_DEVICE, ret);
 
 	lenovo_yb1_x91_rt5677_dev = codec_dev;
-	return 0;
 }
 
-static void lenovo_yb1_x91_audio_exit(void)
+static void lenovo_yb1_x91_remove_audio_props(void)
 {
 	if (!lenovo_yb1_x91_rt5677_dev)
 		return;
@@ -188,15 +222,71 @@ static void lenovo_yb1_x91_audio_exit(void)
 	lenovo_yb1_x91_rt5677_dev = NULL;
 }
 
+static void lenovo_yb1_x91_add_haptics_props(struct device *dev, int index,
+					      const char *name)
+{
+	struct device *haptics_dev;
+	int ret;
+
+	haptics_dev = bus_find_device_by_name(&i2c_bus_type, NULL, name);
+	if (!haptics_dev) {
+		dev_warn(dev, "cannot find %s, haptics will be unavailable\n", name);
+		return;
+	}
+
+	ret = device_add_software_node(haptics_dev,
+				       lenovo_yb1_x91_drv2604_nodes[index]);
+	if (ret) {
+		put_device(haptics_dev);
+		dev_warn(dev, "failed to add properties to %s: %d\n", name, ret);
+		return;
+	}
+
+	/* Apply the properties if a built-in driver already attempted to probe. */
+	ret = device_reprobe(haptics_dev);
+	if (ret)
+		dev_warn(dev, "failed to reprobe %s: %d\n", name, ret);
+
+	lenovo_yb1_x91_drv2604_devs[index] = haptics_dev;
+}
+
+static void lenovo_yb1_x91_remove_haptics_props(int index)
+{
+	struct device *haptics_dev = lenovo_yb1_x91_drv2604_devs[index];
+
+	if (!haptics_dev)
+		return;
+
+	device_remove_software_node(haptics_dev);
+	put_device(haptics_dev);
+	lenovo_yb1_x91_drv2604_devs[index] = NULL;
+}
+
+static int __init lenovo_yb1_x91_init(struct device *dev)
+{
+	lenovo_yb1_x91_add_audio_props(dev);
+	lenovo_yb1_x91_add_haptics_props(dev, 0, YB1_X91_DRV2604_0_DEVICE);
+	lenovo_yb1_x91_add_haptics_props(dev, 1, YB1_X91_DRV2604_1_DEVICE);
+
+	return 0;
+}
+
+static void lenovo_yb1_x91_exit(void)
+{
+	lenovo_yb1_x91_remove_haptics_props(1);
+	lenovo_yb1_x91_remove_haptics_props(0);
+	lenovo_yb1_x91_remove_audio_props();
+}
+
 '''
 
 _X91_INFO = r'''const struct x86_dev_info lenovo_yogabook_x91_info __initconst = {
-	.swnode_group = lenovo_yb1_x91_audio_swnodes,
+	.swnode_group = lenovo_yb1_x91_swnodes,
 	.i2c_client_info = lenovo_yogabook_x91_i2c_clients,
 	.i2c_client_count = ARRAY_SIZE(lenovo_yogabook_x91_i2c_clients),
 	.gpiochip_type = X86_GPIOCHIP_CHERRYVIEW,
-	.init = lenovo_yb1_x91_audio_init,
-	.exit = lenovo_yb1_x91_audio_exit,
+	.init = lenovo_yb1_x91_init,
+	.exit = lenovo_yb1_x91_exit,
 };'''
 
 
@@ -276,15 +366,15 @@ def _find_initializer_span(source: str, declaration: str) -> tuple[int, int, int
 
 
 def patch_lenovo_audio(source: str) -> str:
-    """Backport only the v3 Yoga Book audio board resources."""
-    if "lenovo_yb1_x91_audio_init" in source:
+    """Backport the v3 Yoga Book X91 haptics and audio board resources."""
+    if "lenovo_yb1_x91_drv2604_0_props" in source and "lenovo_yb1_x91_rt5677_props" in source:
         return source
 
     decl_anchor = "static const struct x86_i2c_client_info lenovo_yb1_x90_i2c_clients[] __initconst = {"
     pos = source.find(decl_anchor)
     if pos < 0:
         raise ValueError("could not find Yoga Book X90 I2C declaration anchor")
-    source = source[:pos] + _AUDIO_DECLS + source[pos:]
+    source = source[:pos] + _BOARD_DECLS + source[pos:]
 
     clients_decl = "static const struct x86_i2c_client_info lenovo_yogabook_x91_i2c_clients[] __initconst"
     _, _, clients_close, _ = _find_initializer_span(source, clients_decl)
@@ -292,7 +382,7 @@ def patch_lenovo_audio(source: str) -> str:
 
     info_decl = "const struct x86_dev_info lenovo_yogabook_x91_info __initconst"
     info_start, _, _, info_end = _find_initializer_span(source, info_decl)
-    source = source[:info_start] + _X91_AUDIO_HELPERS + _X91_INFO + source[info_end:]
+    source = source[:info_start] + _X91_BOARD_HELPERS + _X91_INFO + source[info_end:]
     return source
 
 
@@ -328,7 +418,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--output", required=True)
     p.set_defaults(func=cmd_extract_driver)
 
-    p = sub.add_parser("patch-tree", help="apply the X91F match/audio-resource backport")
+    p = sub.add_parser("patch-tree", help="apply the X91F match/audio/haptics resource backport")
     p.add_argument("--tree", required=True)
     p.set_defaults(func=cmd_patch_tree)
     return parser
