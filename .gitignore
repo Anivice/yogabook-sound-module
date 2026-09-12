@@ -1,3 +1,5 @@
 work/
 dist/
 __pycache__/
+*.orig
+*.rej

@@ -3,10 +3,8 @@ set -euo pipefail
 
 ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 KVER="${KVER:-$(uname -r)}"
-KERNEL_TAG="${KERNEL_TAG:-v7.1.13}"
 KDIR="${KDIR:-/usr/src/kernels/${KVER}}"
 WORK="${WORK:-${ROOT}/work}"
-TREE="${WORK}/linux-${KERNEL_TAG#v}"
 DIST="${ROOT}/dist/${KVER}"
 ASOC_MBOX="${WORK}/asoc-v7.mbx"
 ASOC_MSGID="20260902123007.769820-1-mauriziocasciano7@gmail.com"
@@ -33,14 +31,36 @@ EOF
     exit 1
 fi
 
-case "$KVER" in
-    7.1.13-200.fc44.x86_64) ;;
-    *)
-        echo "warning: this backport was designed for 7.1.13-200.fc44.x86_64; got ${KVER}" >&2
-        echo "         set ALLOW_OTHER_KERNEL=1 to continue intentionally." >&2
-        [[ "${ALLOW_OTHER_KERNEL:-0}" == 1 ]] || exit 1
-        ;;
-esac
+KDIR_RELEASE="$(make -s -C "$KDIR" kernelrelease)"
+if [[ "$KDIR_RELEASE" != "$KVER" ]]; then
+    cat >&2 <<EOF
+error: kernel build tree release mismatch:
+  requested: ${KVER}
+  KDIR:      ${KDIR}
+  reports:   ${KDIR_RELEASE}
+
+Set KVER/KDIR to the same target kernel release.
+EOF
+    exit 1
+fi
+
+# KVER is the distro kernel release (for example 7.2.4-200.fc44.x86_64),
+# while gregkh/linux uses upstream stable tags such as v7.2.4.  Strip the
+# distro release suffix when selecting the source baseline.
+KERNEL_BASE_VERSION="${KVER%%-*}"
+if [[ ! "$KERNEL_BASE_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+    cat >&2 <<EOF
+error: cannot derive an upstream stable version from kernel release:
+  ${KVER}
+
+Set KERNEL_TAG explicitly if this is a custom or prerelease kernel.
+EOF
+    exit 1
+fi
+KERNEL_TAG="${KERNEL_TAG:-v${KERNEL_BASE_VERSION}}"
+TREE="${WORK}/linux-${KERNEL_TAG#v}"
+
+printf '==> Target kernel: %s (upstream baseline %s)\n' "$KVER" "$KERNEL_TAG"
 
 mkdir -p "$WORK" "$DIST"
 
@@ -58,7 +78,7 @@ else
     echo "==> Reusing ${TREE}"
 fi
 
-# Always regenerate from the pristine v7.1.13 tag so repeated builds are deterministic.
+# Always regenerate from the selected pristine kernel tag so repeated builds are deterministic.
 git -C "$TREE" reset --hard "$KERNEL_TAG"
 git -C "$TREE" clean -fdx
 
@@ -68,7 +88,7 @@ echo "==> Retrieving ASoC v7 patch 1/2 with b4"
     b4 am -P 1 -o - "$ASOC_MSGID" > "$ASOC_MBOX"
 )
 
-echo "==> Extracting upstream cht_rt5677.c and applying 7.1.13 board backport"
+echo "==> Extracting upstream cht_rt5677.c and applying Yoga Book board backport"
 python3 "$ROOT/prepare.py" extract-driver \
     --mailbox "$ASOC_MBOX" \
     --output "$TREE/sound/soc/intel/boards/cht_rt5677.c"
@@ -129,6 +149,8 @@ cat <<EOF
 Build complete:
   ${DIST}
 
-Next, leave Toolbx and run on the host:
-  ./load-test.sh
+Next, leave Toolbx and install on the host:
+  ./install-mutable.sh
+Then reboot and run:
+  ./verify.sh
 EOF

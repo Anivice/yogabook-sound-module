@@ -15,8 +15,8 @@ if ! sudo test -w "/usr/lib/modules/$KVER"; then
     cat >&2 <<'EOF'
 error: /usr/lib/modules is not writable.
 This is expected on Fedora Atomic/OSTree. Do not remount /usr writable just for
-this script. Use load-test.sh for the live test; package/layer the modules for
-persistent Atomic deployment after the live test succeeds.
+this script. Install the modules through an RPM/OSTree layer or another supported
+persistent mechanism for the current kernel instead.
 EOF
     exit 1
 fi

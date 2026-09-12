@@ -1,35 +1,37 @@
-# Lenovo Yoga Book YB1-X91F audio — Linux 7.1.13 OOT backport
+# Lenovo Yoga Book YB1-X91F audio — kernel-versioned OOT backport
 
-This bundle keeps the currently running Fedora kernel and backports only the
-missing Yoga Book audio pieces as external modules.
+This bundle keeps the selected Fedora kernel and backports only the missing Yoga
+Book audio pieces as external modules. It is not pinned to one Linux point
+release: `build.sh` reads the kernel version from the matching kernel-devel tree
+and selects the corresponding upstream stable tag automatically.
 
-Target tested environment for the build logic:
+Target environment for the build logic:
 
 - Lenovo Yoga Book 1 `YB1-X91F` / X91 family
-- Fedora 44
-- `7.1.13-200.fc44.x86_64`
+- Fedora with a matching `kernel-devel` tree for the target kernel
 - legacy Intel SST path (`intel/fw_sst_22a8.bin`)
 
 It produces exactly three modules:
 
 - `snd-soc-sst-cht-rt5677.ko` — RT5677 Yoga Book machine driver
-- `snd-soc-acpi-intel-match.ko` — stock 7.1.13 Intel ACPI match module,
-  rebuilt with the `10EC5677 -> cht-rt5677` Cherry Trail entry
-- `x86-android-tablets.ko` — stock 7.1.13 tablet module, rebuilt with only the
-  Yoga Book audio resource fixes (TS3A227E + RT5677 GPIO2/GPIO4)
+- `snd-soc-acpi-intel-match.ko` — Intel ACPI match module rebuilt with the
+  `10EC5677 -> cht-rt5677` Cherry Trail entry
+- `x86-android-tablets.ko` — tablet module rebuilt with only the Yoga Book audio
+  resource fixes (TS3A227E + RT5677 GPIO2/GPIO4)
 
-The package deliberately does **not** vendor the large upstream Linux driver
-source. `build.sh` retrieves the reviewed v7 ASoC patch by Message-ID with
-`b4`, extracts the new driver, and downloads the Linux `v7.1.13` baseline with
-a sparse Git checkout. This makes the provenance explicit and reproducible.
+The package deliberately does **not** vendor the large upstream Linux machine
+driver source. `build.sh` retrieves the reviewed v7 ASoC patch by Message-ID
+with `b4`, extracts the new driver, and sparse-checks out the upstream Linux tag
+derived from the selected kernel-devel tree. This keeps provenance explicit and
+reproducible without hard-coding one kernel point release.
 
 ## 1. Build inside Toolbx
 
-The host and Toolbx share the running kernel, but your matching kernel build
-tree is in Toolbx. Enter the same Toolbx where this exists:
+The host and Toolbx share the running kernel, but the matching kernel build tree
+must exist in Toolbx. For the running kernel, the default path is:
 
 ```bash
-/usr/src/kernels/7.1.13-200.fc44.x86_64/Makefile
+/usr/src/kernels/$(uname -r)/Makefile
 ```
 
 Install build dependencies if necessary:
@@ -48,48 +50,66 @@ python3 -m unittest -v tests/test_prepare.py
 ./build.sh
 ```
 
+By default, `KVER` is `uname -r`, `KDIR` is
+`/usr/src/kernels/$KVER`, and the upstream Linux tag is derived by stripping
+the distro suffix from `KVER`. For example:
+
+```text
+7.2.4-200.fc44.x86_64 -> v7.2.4
+```
+
+`KERNEL_TAG` can still be set explicitly when a custom or prerelease source
+baseline is required.
+
+Before compiling, `build.sh` also checks:
+
+```bash
+make -s -C "$KDIR" kernelrelease
+```
+
+and refuses to continue unless that release exactly matches `KVER`. This keeps
+the external modules tied to the intended distro kernel ABI and Module.symvers.
+
 Expected output directory:
 
 ```text
-dist/7.1.13-200.fc44.x86_64/
+dist/<kernel-release>/
 ├── SHA256SUMS
 ├── snd-soc-acpi-intel-match.ko
 ├── snd-soc-sst-cht-rt5677.ko
 └── x86-android-tablets.ko
 ```
 
-`build.sh` refuses another kernel release by default. This is intentional:
-these modules must be built against the exact running Fedora kernel-devel
-headers and Module.symvers.
+## 2. Install on a mutable Fedora host
 
-## 2. Leave Toolbx and live-test on the host
+Leave Toolbx, install the built modules, and reboot:
 
 ```bash
 exit
 cd /path/to/yogabook-x91f-audio-oot
-./load-test.sh
+./install-mutable.sh
+sudo reboot
 ```
 
-The script:
+`install-mutable.sh` installs the modules under:
 
-1. stops the user PipeWire/WirePlumber session;
-2. removes the current `bytcht-nocodec` / SST/SOF match users;
-3. temporarily unloads `x86_android_tablets`;
-4. loads stock `snd_soc_ts3a227e`;
-5. loads the patched X91 board resources;
-6. loads the patched Intel Cherry Trail match table;
-7. loads `snd_soc_sst_cht_rt5677`;
-8. starts `snd_intel_sst_acpi` again;
-9. prints ALSA cards, PCM devices, I2C devices and relevant dmesg output.
+```text
+/usr/lib/modules/$(uname -r)/updates/yogabook-x91f/
+```
 
-### Important battery note
+runs `depmod`, and writes:
 
-`x86_android_tablets` also creates the X91F BQ27542 fuel-gauge I2C client.
-During a live module swap the battery device can therefore disappear briefly
-and be recreated when the patched module loads. The code keeps the existing
-7.1.13 fuel-gauge description unchanged.
+```text
+/etc/modprobe.d/yogabook-x91f-audio.conf
+```
 
-## 3. Kernel-level success criteria
+with `snd_intel_dspcfg dsp_driver=2`, keeping the setup on the legacy SST path.
+It does not overwrite Fedora's stock copies under `kernel/...`.
+
+The patched `x86_android_tablets` module also creates the X91F BQ27542
+fuel-gauge I2C client; the existing fuel-gauge description is left unchanged.
+
+## 3. Verify after reboot
 
 Run:
 
@@ -97,49 +117,30 @@ Run:
 ./verify.sh
 ```
 
-The important changes are:
-
-```text
-BEFORE
-1 [bytchtnocodec]: bytcht-nocodec
-aplay: no soundcards found
-arecord: no soundcards found
-```
-
-and, after a successful SST backport, something equivalent to:
-
-```text
-1 [chtrt5677]: cht-rt5677
-```
-
-`aplay -l` and `arecord -l` should then list actual PCM devices.
-
+A successful backport should select `cht-rt5677` instead of
+`bytcht-nocodec`, and `aplay -l` / `arecord -l` should list actual PCM devices.
 Also check that a TS3A227E client exists on I2C1 address `0x3b`, usually shown
 by sysfs as an `1-003b`-style device.
 
 If `bytcht-nocodec` remains selected, do not move on to UCM/PipeWire yet — the
 kernel machine selection is still wrong.
 
-## 4. Roll back a live test
+## 4. Uninstall the persistent modules
 
 ```bash
-./rollback.sh
+./uninstall-mutable.sh
+sudo reboot
 ```
 
-This removes the OOT modules and modprobes the Fedora stock modules again.
-Because `load-test.sh` never overwrites files under `/usr/lib/modules`, a live
-test is reversible without changing the installed kernel.
+This removes the OOT update directory and the Yoga Book modprobe configuration,
+runs `depmod`, and returns module resolution to the Fedora stock modules after
+reboot.
 
 ## 5. UCM after PCM devices exist
 
 The Yoga Book also needs its UCM2 routing configuration for normal desktop
-speaker/microphone use.
-
-Fedora's `alsaucm` executable is in:
-
-```bash
-alsa-ucm-utils
-```
+speaker/microphone use. Fedora's `alsaucm` executable is provided by
+`alsa-ucm-utils`.
 
 On a mutable Fedora installation:
 
@@ -156,51 +157,13 @@ configuration includes the `cht-rt5677` legacy-SST alias.
 
 ### Fedora Atomic / OSTree
 
-Your boot command line shows an OSTree deployment. On an Atomic host `/usr`
-is normally immutable. **Do not remount `/usr` writable just to install this
-bundle.**
+On an Atomic host `/usr` is normally immutable. **Do not remount `/usr` writable
+just to install this bundle.** `install-mutable.sh` and
+`install-ucm-mutable.sh` intentionally refuse a read-only `/usr`. Persistent
+installation there should be done through a kernel-version-matched RPM/OSTree
+layer or another supported deployment mechanism.
 
-Use `load-test.sh` first because it loads `.ko` files directly from the shared
-working directory and requires no persistent `/usr` modification.
-
-`install-mutable.sh` and `install-ucm-mutable.sh` intentionally refuse a
-read-only `/usr`. Once the live kernel/PCM test succeeds, persistent Atomic
-packaging should be done as a kernel-version-specific RPM/OSTree layer rather
-than by overwriting the deployment.
-
-## 6. Optional persistent install on mutable Fedora
-
-Only after the live test works:
-
-```bash
-./install-mutable.sh
-```
-
-It installs to:
-
-```text
-/usr/lib/modules/$(uname -r)/updates/yogabook-x91f/
-```
-
-and runs `depmod`. It never overwrites Fedora's stock copies under
-`kernel/...`.
-
-It also writes:
-
-```text
-/etc/modprobe.d/yogabook-x91f-audio.conf
-```
-
-with `snd_intel_dspcfg dsp_driver=2`, keeping the first-stage setup on the SST
-path that already works on your machine and has the required firmware.
-
-Undo:
-
-```bash
-./uninstall-mutable.sh
-```
-
-## 7. If a load fails
+## 6. If module loading fails
 
 Capture these before changing anything else:
 
@@ -214,7 +177,7 @@ find /sys/bus/i2c/devices -maxdepth 1 \
 
 Typical failure classes:
 
-- `Unknown symbol ...` — source/backport or Fedora ABI mismatch; do not force
+- `Unknown symbol ...` — source/backport or distro ABI mismatch; do not force
   the module.
 - `invalid module format` — wrong kernel-devel/vermagic.
 - `Key was rejected by service` — kernel lockdown/module-signing issue.
@@ -226,12 +189,13 @@ Typical failure classes:
 
 ## Upstream inputs
 
-The scripts intentionally pin these inputs:
+The scripts intentionally pin only the reviewed patch input, not one Linux point
+release:
 
-- Linux baseline: `gregkh/linux`, tag `v7.1.13`
+- Linux baseline: `gregkh/linux`, tag derived from `KVER` after stripping the
+  distro release suffix (override with `KERNEL_TAG` when necessary)
 - ASoC v7 cover Message-ID:
   `20260902123007.769820-1-mauriziocasciano7@gmail.com`
 - Yoga Book board resource behavior corresponds to the audio-only parts of
   platform/x86 v3 patches 2/3 and 3/3. Haptics changes are intentionally not
   included.
-

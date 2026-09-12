@@ -3,7 +3,7 @@
 
 This file intentionally does not vendor the upstream Linux machine driver.
 The build workflow retrieves the reviewed patch with b4 and extracts the new
-source file from that mailbox, then applies small 7.1.13-specific adaptations.
+source file from that mailbox, then applies the Yoga Book-specific adaptations.
 """
 
 from __future__ import annotations
@@ -61,7 +61,7 @@ def extract_new_file_from_patch(patch_text: str, target_path: str) -> str:
 
 
 def patch_cherrytrail_match(source: str) -> str:
-    """Add the YB1-X91F/L 10EC5677 machine-table entry to Linux 7.1.13."""
+    """Add the YB1-X91F/L 10EC5677 machine-table entry."""
     if '"10EC5677"' in source and '"cht-rt5677"' in source:
         return source
 
@@ -276,7 +276,7 @@ def _find_initializer_span(source: str, declaration: str) -> tuple[int, int, int
 
 
 def patch_lenovo_audio(source: str) -> str:
-    """Backport only the v3 Yoga Book audio board resources onto 7.1.13."""
+    """Backport only the v3 Yoga Book audio board resources."""
     if "lenovo_yb1_x91_audio_init" in source:
         return source
 
@@ -328,7 +328,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--output", required=True)
     p.set_defaults(func=cmd_extract_driver)
 
-    p = sub.add_parser("patch-tree", help="apply the 7.1.13 X91F match/audio-resource backport")
+    p = sub.add_parser("patch-tree", help="apply the X91F match/audio-resource backport")
     p.add_argument("--tree", required=True)
     p.set_defaults(func=cmd_patch_tree)
     return parser

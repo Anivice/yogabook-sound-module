@@ -7,8 +7,8 @@ REPO="$WORK/Yoga-Book-ALSA-UCM-Config"
 if ! sudo test -w /usr/share/alsa/ucm2; then
     cat >&2 <<'EOF'
 error: /usr/share/alsa/ucm2 is not writable (typical on Fedora Atomic).
-Do not remount /usr. First prove the kernel/PCM path with load-test.sh; then
-install the UCM tree through an OSTree/RPM layer rather than mutating /usr.
+Do not remount /usr. Install the UCM tree through an OSTree/RPM layer rather
+than mutating /usr.
 EOF
     exit 1
 fi
