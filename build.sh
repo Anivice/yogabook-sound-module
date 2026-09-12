@@ -136,9 +136,7 @@ obj-m += snd-soc-sst-cht-rt5677.o
 EOF
 printf '\nobj-m += snd-soc-acpi-intel-match.o\n' >> "$TREE/sound/soc/intel/common/Makefile"
 printf '\nobj-m += x86-android-tablets.o\n' >> "$TREE/drivers/platform/x86/x86-android-tablets/Makefile"
-if [[ "$WITH_DRV260X_PM_FIX" == 1 ]]; then
-    printf '\nobj-m += drv260x.o\n' >> "$TREE/drivers/input/misc/Makefile"
-fi
+printf '\nobj-m += drv260x.o\n' >> "$TREE/drivers/input/misc/Makefile"
 
 build_dir() {
     local dir="$1"
@@ -154,19 +152,15 @@ build_dir "$TREE/sound/soc/intel/common" \
 build_dir "$TREE/sound/soc/intel/boards"
 build_dir "$TREE/drivers/platform/x86/x86-android-tablets" \
     CONFIG_X86_ANDROID_TABLETS=n
-if [[ "$WITH_DRV260X_PM_FIX" == 1 ]]; then
-    build_dir "$TREE/drivers/input/misc" \
-        CONFIG_INPUT_DRV260X_HAPTICS=n
-fi
+build_dir "$TREE/drivers/input/misc" \
+    CONFIG_INPUT_DRV260X_HAPTICS=n
 
 rm -rf "$DIST"
 mkdir -p "$DIST"
 cp -v "$TREE/sound/soc/intel/common/snd-soc-acpi-intel-match.ko" "$DIST/"
 cp -v "$TREE/sound/soc/intel/boards/snd-soc-sst-cht-rt5677.ko" "$DIST/"
 cp -v "$TREE/drivers/platform/x86/x86-android-tablets/x86-android-tablets.ko" "$DIST/"
-if [[ "$WITH_DRV260X_PM_FIX" == 1 ]]; then
-    cp -v "$TREE/drivers/input/misc/drv260x.ko" "$DIST/"
-fi
+cp -v "$TREE/drivers/input/misc/drv260x.ko" "$DIST/"
 
 printf '\n==> Module metadata\n'
 for ko in "$DIST"/*.ko; do
@@ -196,5 +190,6 @@ Next, leave Toolbx and install on the host:
 Then reboot and run:
   ./verify.sh
 
+drv260x module built from selected kernel baseline: yes
 Optional suspend/resume drv260x fix included: ${WITH_DRV260X_PM_FIX}
 EOF

@@ -11,29 +11,32 @@ Target environment for the build logic:
 - Fedora with a matching `kernel-devel` tree for the target kernel
 - legacy Intel SST path (`intel/fw_sst_22a8.bin`)
 
-The normal build produces three replacement modules:
+The normal build produces four replacement modules:
 
 - `snd-soc-sst-cht-rt5677.ko` — RT5677 Yoga Book machine driver
 - `snd-soc-acpi-intel-match.ko` — Intel ACPI match module rebuilt with the
   `10EC5677 -> cht-rt5677` Cherry Trail entry
 - `x86-android-tablets.ko` — tablet module rebuilt with the Yoga Book board
   resources: both DRV2604 haptic controllers, TS3A227E, and RT5677 GPIO2/GPIO4
+- `drv260x.ko` — generic TI DRV260x force-feedback driver built from the same
+  upstream kernel baseline, because Fedora may leave `CONFIG_INPUT_DRV260X_HAPTICS`
+  disabled and therefore ship no stock module
 
-Linux 7.2.x already has the generic `drv260x` ACPI/force-feedback driver, so the
-normal build deliberately uses the distro's stock `drv260x.ko`. The missing X91
-firmware data supplied here is LRA mode, empty waveform-library selection, and
-the two Cherryview enable GPIO mappings (pins 79 and 47).
+The X91 firmware data supplied by the tablet-module backport is LRA mode, empty
+waveform-library selection, and the two Cherryview enable GPIO mappings (pins 79
+and 47). Building `drv260x.ko` here makes the bundle self-contained regardless of
+whether the distro kernel package enabled that otherwise-upstream driver.
 
-There is also an **optional** fourth-module build for the latest public drv260x
-suspend/resume sequencing fix (v7, 2026-08-31):
+There is also an **optional** application of the latest public drv260x
+suspend/resume sequencing fix (v7, 2026-08-31) before that module is built:
 
 ```bash
 WITH_DRV260X_PM_FIX=1 ./build.sh
 ```
 
-When enabled, `dist/<kernel-release>/drv260x.ko` is built from that public patch
-and `install-mutable.sh` installs it alongside the board/audio modules. Leave the
-flag at its default `0` for the smallest change set.
+`drv260x.ko` is built and installed in both cases. With the flag at its default
+`0`, it is the unmodified driver from the selected stable baseline; with the flag
+set to `1`, the public PM v7 patch is applied first.
 
 The package deliberately does **not** vendor the large upstream Linux machine
 driver source. `build.sh` retrieves the reviewed v7 ASoC patch by Message-ID
@@ -91,12 +94,10 @@ Expected output directory:
 ```text
 dist/<kernel-release>/
 ├── SHA256SUMS
+├── drv260x.ko
 ├── snd-soc-acpi-intel-match.ko
 ├── snd-soc-sst-cht-rt5677.ko
 └── x86-android-tablets.ko
-
-# additionally, only with WITH_DRV260X_PM_FIX=1:
-└── drv260x.ko
 ```
 
 ## 2. Install on a mutable Fedora host

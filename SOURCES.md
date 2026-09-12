@@ -12,15 +12,17 @@ its GPIO2/GPIO4 software-node properties. The existing BQ27542 fuel-gauge
 resource is retained.
 
 The selected Linux baseline already contains generic drv260x ACPI support for
-`DRV2604` and exposes the controller through the input force-feedback API. The
-normal build therefore does not replace `drv260x.ko`.
+`DRV2604` and exposes the controller through the input force-feedback API. Some
+distro kernels, including the Fedora build targeted during development, do not
+enable `CONFIG_INPUT_DRV260X_HAPTICS` and therefore install no stock
+`drv260x.ko`. The bundle consequently force-builds `drivers/input/misc/drv260x.c`
+from the same selected upstream baseline as a fourth OOT module.
 
-For suspend/resume robustness, `WITH_DRV260X_PM_FIX=1` makes `build.sh` fetch the
-public 2026-08-31 drv260x PM v7 patch by Message-ID
-`20260831150323.2922792-1-mauriziocasciano7@gmail.com`, apply it to the selected
-upstream baseline, and build `drv260x.ko` as an optional fourth replacement
-module. This path is opt-in because the patch was still under review when this
-bundle was prepared.
+For suspend/resume robustness, `WITH_DRV260X_PM_FIX=1` additionally makes
+`build.sh` fetch the public 2026-08-31 drv260x PM v7 patch by Message-ID
+`20260831150323.2922792-1-mauriziocasciano7@gmail.com` and apply it before
+building that always-present `drv260x.ko`. This patch remains opt-in because it
+was still under review when this bundle was prepared.
 
 `build.sh` derives the upstream Linux stable tag from `KVER` by stripping the
 distro release suffix (for example, `7.2.4-200.fc44.x86_64` selects `v7.2.4`).

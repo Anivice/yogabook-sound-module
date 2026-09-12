@@ -22,10 +22,12 @@ EOF
 fi
 
 sudo install -d -m 0755 "$DEST"
-modules=(x86-android-tablets.ko snd-soc-acpi-intel-match.ko snd-soc-sst-cht-rt5677.ko)
-if [[ -f "$DIST/drv260x.ko" ]]; then
-    modules+=(drv260x.ko)
-fi
+modules=(
+    x86-android-tablets.ko
+    snd-soc-acpi-intel-match.ko
+    snd-soc-sst-cht-rt5677.ko
+    drv260x.ko
+)
 for ko in "${modules[@]}"; do
     sudo install -m 0644 "$DIST/$ko" "$DEST/$ko"
 done
